@@ -184,11 +184,11 @@ pub fn render_tile(ui: &mut egui::Ui, cam: &mut CameraState, tile_size: egui::Ve
     );
 
     // ── FPS indicator (top-right corner of inner area) ────────────────────────
-    if matches!(cam.connection, ConnectionStatus::Streaming) && cam.fps > 0.0 {
+    if matches!(cam.connection, ConnectionStatus::Streaming) && cam.displayed_fps > 0.0 {
         painter.text(
             egui::pos2(rect.max.x - 5.0, rect.min.y + bar_h + 3.0),
             egui::Align2::RIGHT_TOP,
-            format!("{:.0}fps", cam.fps),
+            format!("{:.0}fps", cam.displayed_fps),
             egui::FontId::proportional(9.0),
             COL_BLUE,
         );

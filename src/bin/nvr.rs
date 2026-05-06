@@ -52,7 +52,6 @@ const CAMERAS: &[CameraConfig] = &[
     },
 ];
 
-
 fn main() {
     // ONE runtime for all cameras — lives until program exits
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -67,7 +66,7 @@ fn main() {
             let latest = latest.clone();
             async move {
                 let config = RtspConfig {
-                    url:       cfg.url.into(),
+                    url: cfg.url.into(),
                     camera_id: cfg.id.into(),
                 };
                 let (client, rx) = RtspClient::new(config);
@@ -83,8 +82,7 @@ fn main() {
     let _ = eframe::run_native(
         "CamProto NVR",
         eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default()
-                .with_inner_size([1280.0, 720.0]),
+            viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 720.0]),
             ..Default::default()
         },
         Box::new(move |cc| Ok(Box::new(NvrApp::new_with_cameras(cc, cam_latests)))),

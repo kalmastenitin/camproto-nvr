@@ -45,11 +45,14 @@ pub struct CameraState {
 
     pub latest: Option<LatestFrame>,
     pub texture: Option<egui::TextureHandle>,
+
+    pub last_frame_time: Option<std::time::Instant>,
+    pub displayed_fps: f32,
 }
 
 pub struct RgbFrame {
-    pub data:   Vec<u8>,
-    pub width:  usize,
+    pub data: Vec<u8>,
+    pub width: usize,
     pub height: usize,
 }
 
@@ -93,6 +96,8 @@ impl CameraState {
             zoom_capable: false,
             latest: None,
             texture: None,
+            last_frame_time: None,
+            displayed_fps: 0.0,
         }
     }
 }
@@ -175,51 +180,94 @@ impl eframe::App for NvrApp {
         });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            let cols = self.grid_cols;
-            let spacing = 4.0;
-            let cameras_per_page = cols * cols;
-            let start = self.current_page * cameras_per_page;
-            let end = (start + cameras_per_page).min(self.cameras.len());
-
-            let available = ui.available_width();
-            let tile_w = (available - spacing * (cols as f32 - 1.0)) / cols as f32;
-            let tile_h = tile_w * 9.0 / 16.0;
-            let tile_size = egui::vec2(tile_w, tile_h);
-            let ctx = ui.ctx().clone();
-
-            egui::Grid::new("camera_grid")
-                .spacing([spacing, spacing])
-                .show(ui, |ui| {
-                    for (i, cam) in self.cameras[start..end].iter_mut().enumerate() {
-                        if i > 0 && i % cols == 0 {
-                            ui.end_row();
-                        }
-
-                        // ── poll for new decoded frame ────────────────────────────
-                        if let Some(ref latest) = cam.latest {
-                            if let Ok(mut guard) = latest.try_lock() {
-                                if let Some(frame) = guard.take() {
-                                    let (rgb, dw, dh) = yuv_to_rgb(&frame);
-                                    let texture = ctx.load_texture(
-                                        &cam.camera_id,
-                                        egui::ColorImage::from_rgb([dw, dh], &rgb),
-                                        egui::TextureOptions::LINEAR,
-                                    );
-                                    cam.texture = Some(texture);
-                                    cam.connection = ConnectionStatus::Streaming;
-                                    cam.resolution = (frame.width, frame.height);
-                                }
-                            }
-                        }
-                        if tile::render_tile(ui, cam, tile_size) {
-                            self.focused = Some(start + i);
-                        }
-                    }
-                });
+            if let Some(idx) = self.focused {
+                if render_fullscreen(ui, &mut self.cameras[idx]) {
+                    self.focused = None
+                }
+                if ui.button("<- Grid").clicked() {
+                    self.focused = None
+                }
+            } else {
+                render_grid(self, ui);
+            }
         });
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(33));
     }
+}
+
+fn render_grid(app: &mut NvrApp, ui: &mut egui::Ui) {
+    let cols = app.grid_cols;
+    let spacing = 4.0;
+    let cameras_per_page = cols * cols;
+    let start = app.current_page * cameras_per_page;
+    let end = (start + cameras_per_page).min(app.cameras.len());
+    let available = ui.available_width();
+    let tile_w = (available - spacing * (cols as f32 - 1.0)) / cols as f32;
+    let tile_h = tile_w * 9.0 / 16.0;
+    let tile_size = egui::vec2(tile_w, tile_h);
+    let ctx = ui.ctx().clone();
+
+    egui::Grid::new("camera_grid")
+        .spacing([spacing, spacing])
+        .show(ui, |ui| {
+            for (i, cam) in app.cameras[start..end].iter_mut().enumerate() {
+                if i > 0 && i % cols == 0 {
+                    ui.end_row();
+                }
+                poll_frame(&ctx, cam);
+                if tile::render_tile(ui, cam, tile_size) {
+                    app.focused = Some(start + i);
+                }
+            }
+        });
+}
+
+fn poll_frame(ctx: &egui::Context, cam: &mut CameraState) {
+    if let Some(ref latest) = cam.latest {
+        if let Ok(mut guard) = latest.try_lock() {
+            if let Some(frame) = guard.take() {
+                let (rgb, dw, dh) = yuv_to_rgb(&frame);
+                cam.texture = Some(ctx.load_texture(
+                    &cam.camera_id,
+                    egui::ColorImage::from_rgb([dw, dh], &rgb),
+                    egui::TextureOptions::LINEAR,
+                ));
+                cam.connection = ConnectionStatus::Streaming;
+                cam.resolution = (frame.width * 2, frame.height * 2); // restore real res
+
+                // fps counter
+                let now = std::time::Instant::now();
+                if let Some(last) = cam.last_frame_time {
+                    let dt = last.elapsed().as_secs_f32();
+                    if dt > 0.0 {
+                        // smooth fps with exponential moving average
+                        cam.displayed_fps = cam.displayed_fps * 0.8 + (1.0 / dt) * 0.2;
+                    }
+                }
+                cam.last_frame_time = Some(now);
+            }
+        }
+    }
+}
+
+fn render_fullscreen(ui: &mut egui::Ui, cam: &mut CameraState) -> bool{
+    // returns true if should exit fullscreen
+    poll_frame(&ui.ctx().clone(), cam);
+    
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        return true;
+    }
+    
+    let available = ui.available_size();
+    // maintain 16:9
+    let (w, h) = if available.x / available.y > 16.0 / 9.0 {
+        (available.y * 16.0 / 9.0, available.y)
+    } else {
+        (available.x, available.x * 9.0 / 16.0)
+    };
+    tile::render_tile(ui, cam, egui::vec2(w, h));
+    false
 }
 
 fn yuv_to_rgb(frame: &crate::decode::YuvFrame) -> (Vec<u8>, usize, usize) {
