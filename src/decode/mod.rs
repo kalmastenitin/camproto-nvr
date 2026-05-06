@@ -96,7 +96,7 @@ pub fn spawn_decode_task(
 
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     eprintln!("[{}] dropped {} frames — resetting decoder", camera_id, n);
-                    decoder = None; // force re-init on next keyframe
+                    // decoder = None; // force re-init on next keyframe
                 }
 
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {

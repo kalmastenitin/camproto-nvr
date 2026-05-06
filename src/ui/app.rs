@@ -1,3 +1,4 @@
+use crate::decode::LatestFrame;
 use crate::ui::tile;
 use crate::ui::topbar;
 
@@ -41,6 +42,9 @@ pub struct CameraState {
     // future — reserve now, use later
     pub ptz_capable: bool,
     pub zoom_capable: bool,
+
+    pub latest: Option<LatestFrame>,
+    pub texture: Option<egui::TextureHandle>,
 }
 
 pub enum ConnectionStatus {
@@ -81,6 +85,8 @@ impl CameraState {
             has_audio: false,
             ptz_capable: false,
             zoom_capable: false,
+            latest: None,
+            texture: None,
         }
     }
 }
@@ -132,6 +138,20 @@ impl NvrApp {
         }
         app
     }
+
+    pub fn new_with_camera(
+        _cc: &eframe::CreationContext<'_>,
+        camera_id: &str,
+        latest: LatestFrame,
+    ) -> Self {
+        let mut app = Self::default();
+
+        let mut cam = CameraState::new(camera_id, "Front Gate");
+        cam.connection = ConnectionStatus::Connecting;
+        cam.latest = Some(latest);
+        app.cameras.push(cam);
+        app
+    }
 }
 
 impl eframe::App for NvrApp {
@@ -155,19 +175,36 @@ impl eframe::App for NvrApp {
             let cameras_per_page = cols * cols;
             let start = self.current_page * cameras_per_page;
             let end = (start + cameras_per_page).min(self.cameras.len());
-            let page_cameras = &self.cameras[start..end];
 
             let available = ui.available_width();
             let tile_w = (available - spacing * (cols as f32 - 1.0)) / cols as f32;
             let tile_h = tile_w * 9.0 / 16.0;
             let tile_size = egui::vec2(tile_w, tile_h);
+            let ctx = ui.ctx().clone();
 
             egui::Grid::new("camera_grid")
                 .spacing([spacing, spacing])
                 .show(ui, |ui| {
-                    for (i, cam) in page_cameras.iter().enumerate() {
+                    for (i, cam) in self.cameras[start..end].iter_mut().enumerate() {
                         if i > 0 && i % cols == 0 {
                             ui.end_row();
+                        }
+
+                        // ── poll for new decoded frame ────────────────────────────
+                        if let Some(ref latest) = cam.latest {
+                            if let Ok(mut guard) = latest.try_lock() {
+                                if let Some(frame) = guard.take() {
+                                    let (rgb, dw, dh) = yuv_to_rgb(&frame);
+                                    let texture = ctx.load_texture(
+                                        &cam.camera_id,
+                                        egui::ColorImage::from_rgb([dw, dh], &rgb),
+                                        egui::TextureOptions::LINEAR,
+                                    );
+                                    cam.texture = Some(texture);
+                                    cam.connection = ConnectionStatus::Streaming;
+                                    cam.resolution = (frame.width, frame.height);
+                                }
+                            }
                         }
                         if tile::render_tile(ui, cam, tile_size) {
                             self.focused = Some(start + i);
@@ -175,5 +212,27 @@ impl eframe::App for NvrApp {
                     }
                 });
         });
+        ui.ctx().request_repaint_after(
+            std::time::Duration::from_millis(33)
+        );
     }
+}
+
+fn yuv_to_rgb(frame: &crate::decode::YuvFrame) -> (Vec<u8>, usize, usize) {
+    let w = frame.width as usize;
+    let h = frame.height as usize;
+    let mut rgb = Vec::with_capacity(w * h * 3);
+
+    for row in 0..h {
+        for col in 0..w {
+            let y = frame.y_plane[row * w + col] as f32;
+            let u = frame.u_plane[(row / 2) * (w / 2) + col / 2] as f32 - 128.0;
+            let v = frame.v_plane[(row / 2) * (w / 2) + col / 2] as f32 - 128.0;
+
+            rgb.push((y + 1.5748 * v).clamp(0.0, 255.0) as u8);
+            rgb.push((y - 0.1873 * u - 0.4681 * v).clamp(0.0, 255.0) as u8);
+            rgb.push((y + 1.8556 * u).clamp(0.0, 255.0) as u8);
+        }
+    }
+    (rgb, w, h)
 }

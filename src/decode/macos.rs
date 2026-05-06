@@ -106,9 +106,6 @@ extern "C" {
     ) -> OSStatus;
 
     fn VTDecompressionSessionInvalidate(session: VTSessionRef);
-    fn VTDecompressionSessionRelease(session: VTSessionRef);
-
-    fn CMVideoFormatDescriptionRelease(desc: CMFormatDescRef);
 
     fn CMBlockBufferCreateWithMemoryBlock(
         allocator: *const c_void,
@@ -157,8 +154,8 @@ impl Drop for VideoToolboxDecoder {
     fn drop(&mut self) {
         unsafe {
             VTDecompressionSessionInvalidate(self.session);
-            VTDecompressionSessionRelease(self.session);
-            CMVideoFormatDescriptionRelease(self.format_desc);
+            CFRelease(self.session as *const c_void); // replaces VTDecompressionSessionRelease
+            CFRelease(self.format_desc as *const c_void); // replaces CMVideoFormatDescriptionRelease
         }
     }
 }
@@ -195,7 +192,9 @@ impl VideoToolboxDecoder {
 
             // ── Step 2: build callback record ────────────────────────────────
             // Pass Arc pointer as refcon — VT will give it back in callback
-            let refcon = Arc::into_raw(latest.clone()) as *mut c_void;
+            let boxed = Box::new(latest.clone());
+            let refcon = Box::into_raw(boxed) as *mut c_void;
+
             //           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
             //           converts Arc to raw pointer WITHOUT dropping it
             //           Arc refcount goes up by 1
@@ -242,17 +241,21 @@ impl VideoToolboxDecoder {
             // CMBlockBuffer does NOT copy the data — it holds a pointer
             // data must stay alive until after VTDecompressionSessionDecodeFrame returns
             // since we call synchronously this is fine — data is on the stack
+            let mut data_copy = data.to_vec();
+            let ptr = data_copy.as_mut_ptr();
+            let len = data_copy.len();
+            std::mem::forget(data_copy); // leak to CoreMedia — it will free via NULL allocator
 
             let mut block_buf: CMBlockBufferRef = std::ptr::null_mut();
             let status = CMBlockBufferCreateWithMemoryBlock(
-                std::ptr::null(),             // allocator
-                data.as_ptr() as *mut c_void, // memory block (your NAL bytes)
-                data.len(),                   // total block length
-                std::ptr::null(),             // block allocator (NULL = don't free)
-                std::ptr::null(),             // custom block source
-                0,                            // offset to data
-                data.len(),                   // data length
-                0,                            // flags
+                std::ptr::null(),
+                ptr as *mut c_void, // ← CoreMedia-owned copy
+                len,
+                std::ptr::null(), // NULL = use default allocator = malloc/free ✓
+                std::ptr::null(),
+                0,
+                len,
+                0,
                 &mut block_buf,
             );
             if status != 0 {
@@ -295,7 +298,7 @@ impl VideoToolboxDecoder {
             let status = VTDecompressionSessionDecodeFrame(
                 self.session,
                 sample_buf,
-                0,                    // decode flags (0 = default)
+                1,                    // decode flags (0 = default)
                 std::ptr::null_mut(), // source refcon (per-frame, we use the session refcon)
                 std::ptr::null_mut(), // info flags out
             );
@@ -343,10 +346,16 @@ unsafe extern "C" fn decompress_callback(
     // ── Copy Y plane (luma, full resolution) ─────────────────────────────────
     let y_ptr = CVPixelBufferGetBaseAddressOfPlane(image_buffer, 0);
     let y_stride = CVPixelBufferGetBytesPerRowOfPlane(image_buffer, 0);
-    let mut y_plane = Vec::with_capacity((width * height) as usize);
-    for row in 0..height as usize {
+    let dw = (width / 2) as usize;
+    let dh = (height / 2) as usize;
+    let mut y_plane = Vec::with_capacity(dw * dh);
+    for row in (0..height as usize).step_by(2) {
+        // ← skip every other row
         let src = std::slice::from_raw_parts(y_ptr.add(row * y_stride), width as usize);
-        y_plane.extend_from_slice(src);
+        for col in (0..width as usize).step_by(2) {
+            // ← skip every other column
+            y_plane.push(src[col]);
+        }
     }
 
     // ── Copy UV plane (chroma, half resolution, interleaved) ─────────────────
@@ -360,10 +369,9 @@ unsafe extern "C" fn decompress_callback(
     let mut u_plane = Vec::with_capacity(uv_width * uv_height);
     let mut v_plane = Vec::with_capacity(uv_width * uv_height);
 
-    for row in 0..uv_height {
+    for row in (0..uv_height).step_by(2) {
         let src = std::slice::from_raw_parts(uv_ptr.add(row * uv_stride), width as usize);
-        // interleaved: UVUVUV... → separate U and V
-        for col in 0..uv_width {
+        for col in (0..uv_width).step_by(2) {
             u_plane.push(src[col * 2]);
             v_plane.push(src[col * 2 + 1]);
         }
@@ -373,13 +381,14 @@ unsafe extern "C" fn decompress_callback(
 
     // ── Write to shared LatestFrame ───────────────────────────────────────────
     let latest = &*(refcon as *const LatestFrame);
+
     if let Ok(mut guard) = latest.lock() {
         *guard = Some(YuvFrame {
             y_plane,
             u_plane,
             v_plane,
-            width,
-            height,
+            width: width / 2,   // ← store display dimensions
+            height: height / 2, // ← not original dimensions
             pts: pts_us,
         });
     }

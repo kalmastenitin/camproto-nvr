@@ -19,7 +19,7 @@ const COL_BLUE: egui::Color32 = egui::Color32::from_rgb(96, 165, 250);
 
 /// Render one camera tile.
 /// Returns true if the tile was clicked (caller should focus this camera).
-pub fn render_tile(ui: &mut egui::Ui, cam: &CameraState, tile_size: egui::Vec2) -> bool {
+pub fn render_tile(ui: &mut egui::Ui, cam: &mut CameraState, tile_size: egui::Vec2) -> bool {
     let (rect, response) = ui.allocate_exact_size(tile_size, egui::Sense::click());
 
     if !ui.is_rect_visible(rect) {
@@ -138,14 +138,23 @@ pub fn render_tile(ui: &mut egui::Ui, cam: &CameraState, tile_size: egui::Vec2) 
         }
         ConnectionStatus::Streaming => {
             // video texture will go here later
-            // for now show camera_id as placeholder
-            painter.text(
-                inner.center(),
-                egui::Align2::CENTER_CENTER,
-                &cam.camera_id,
-                egui::FontId::proportional(13.0),
-                egui::Color32::from_rgb(30, 35, 45),
-            );
+            if let Some(ref texture) = cam.texture {
+                // render video texture
+                painter.image(
+                    texture.id(),
+                    inner,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+            } else {
+                painter.text(
+                    inner.center(),
+                    egui::Align2::CENTER_CENTER,
+                    &cam.camera_id,
+                    egui::FontId::proportional(13.0),
+                    egui::Color32::from_rgb(30, 35, 45),
+                );
+            }
         }
     }
 
