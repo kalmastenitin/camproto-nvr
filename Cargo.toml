@@ -1,0 +1,20 @@
+[package]
+name    = "camproto-nvr"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "nvr"
+path = "src/bin/nvr.rs"
+
+[dependencies]
+egui        = "0.34.2"
+eframe      = { version = "0.34.2", features = ["wgpu"] }
+wgpu        = "29.0.3"
+tokio       = { version = "1.52.2", features = ["full"] }
+parking_lot = "0.12"
+camproto-ingest = { path = "../camproto-ingest" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation     = "0.10.1"
+core-foundation-sys = "0.8"
