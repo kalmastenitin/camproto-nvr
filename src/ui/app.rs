@@ -1,14 +1,94 @@
+pub struct NvrApp {
+    pub cameras: Vec<CameraState>,
+    pub focused: Option<usize>,
+}
 
-#[derive(Default)]
-pub struct NvrApp {}
+impl Default for NvrApp {
+    fn default() -> Self {
+        Self {
+            cameras: Vec::new(),
+            focused: None,
+        }
+    }
+}
+
+pub struct CameraState {
+    pub camera_id: String,
+    pub name: String,
+
+    pub connection: ConnectionStatus,
+    pub fps: f32,               // measured at runtime
+    pub bitrate_kbps: u32,      // measured at runtime
+    pub resolution: (u32, u32), // from SDP
+
+    // recording status
+    pub recording: RecordingStatus,
+    pub record_secs: u64, // seconds recording so far
+    pub storage_mb: f32,  // MB written this session
+
+    // stream info from probe()
+    pub codec: String,
+    pub framerate: f32,
+    pub has_audio: bool,
+
+    // future — reserve now, use later
+    pub ptz_capable: bool,
+    pub zoom_capable: bool,
+}
+
+pub enum ConnectionStatus {
+    Connecting,
+    Streaming,
+    Disconnected(String), // Disconnected(reason)
+}
+
+pub enum RecordingStatus {
+    Idle,
+    Recording {
+        started_secs: u64,
+    }, // when did it start
+    EventRecording {
+        reason: String, // "Motion" / "Alarm" / "Manual"
+        started_secs: u64,
+        post_secs: u64, // record N more seconds after event
+    },
+    Scheduled {
+        ends_secs: u64,
+    }, // scheduled end time
+}
+
+impl CameraState {
+    pub fn new(camera_id: &str, name: &str) -> Self {
+        Self {
+            camera_id: camera_id.to_string(),
+            name: name.to_string(),
+            connection: ConnectionStatus::Connecting,
+            fps: 0.0,
+            bitrate_kbps: 0,
+            resolution: (0, 0),
+            recording: RecordingStatus::Idle,
+            record_secs: 0,
+            storage_mb: 0.0,
+            codec: String::new(),
+            framerate: 0.0,
+            has_audio: false,
+            ptz_capable: false,
+            zoom_capable: false,
+        }
+    }
+}
 
 impl NvrApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_global_style.
-        // Restore app state using cc.storage (requires the "persistence" feature).
-        // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
-        // for e.g. egui::PaintCallback.
-        Self::default()
+        let mut app = Self::default();
+
+        for i in 1..=16 {
+            app.cameras.push(CameraState::new(
+                &format!("cam_{:03}", i),
+                &format!("Camera {}", i),
+            ));
+        }
+        app
     }
 }
 
