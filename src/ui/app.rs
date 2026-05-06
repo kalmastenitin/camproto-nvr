@@ -84,7 +84,42 @@ impl NvrApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::default();
 
-        for i in 1..=16 {
+        let mut cam1 = CameraState::new("cam_001", "Front Gate");
+        cam1.connection = ConnectionStatus::Streaming;
+        cam1.codec = "H265".into();
+        cam1.resolution = (1920, 1080);
+        cam1.framerate = 25.0;
+        cam1.fps = 24.8;
+        cam1.bitrate_kbps = 2048;
+        cam1.has_audio = true;
+        app.cameras.push(cam1);
+
+        // recording camera
+        let mut cam2 = CameraState::new("cam_002", "Parking Lot");
+        cam2.connection = ConnectionStatus::Streaming;
+        cam2.recording = RecordingStatus::Recording { started_secs: 120 };
+        cam2.codec = "H264".into();
+        cam2.resolution = (1280, 720);
+        cam2.framerate = 25.0;
+        cam2.fps = 25.0;
+        app.cameras.push(cam2);
+
+        // event recording
+        let mut cam3 = CameraState::new("cam_003", "Side Door");
+        cam3.connection = ConnectionStatus::Streaming;
+        cam3.recording = RecordingStatus::EventRecording {
+            reason: "Motion".into(),
+            started_secs: 30,
+            post_secs: 60,
+        };
+        app.cameras.push(cam3);
+
+        // disconnected
+        let mut cam4 = CameraState::new("cam_004", "Roof Cam");
+        cam4.connection = ConnectionStatus::Disconnected("connection timed out".into());
+        app.cameras.push(cam4);
+
+        for i in 5..=16 {
             app.cameras.push(CameraState::new(
                 &format!("cam_{:03}", i),
                 &format!("Camera {}", i),
