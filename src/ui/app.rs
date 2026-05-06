@@ -1,8 +1,11 @@
 use crate::ui::tile;
+use crate::ui::topbar;
 
 pub struct NvrApp {
     pub cameras: Vec<CameraState>,
     pub focused: Option<usize>,
+    pub grid_cols: usize,
+    pub current_page: usize,
 }
 
 impl Default for NvrApp {
@@ -10,6 +13,8 @@ impl Default for NvrApp {
         Self {
             cameras: Vec::new(),
             focused: None,
+            grid_cols: 4,
+            current_page: 0,
         }
     }
 }
@@ -131,9 +136,27 @@ impl NvrApp {
 
 impl eframe::App for NvrApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // 1. top panel FIRST
+        egui::Panel::top("topbar").show_inside(ui, |ui| {
+            let resp =
+                topbar::render_topbar(ui, self.cameras.len(), self.grid_cols, self.current_page);
+            if let Some(cols) = resp.grid_cols {
+                self.grid_cols = cols;
+                self.current_page = 0;
+            }
+            if let Some(page) = resp.page_changed {
+                self.current_page = page;
+            }
+        });
+
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            let cols = 4usize;
+            let cols = self.grid_cols;
             let spacing = 4.0;
+            let cameras_per_page = cols * cols;
+            let start = self.current_page * cameras_per_page;
+            let end = (start + cameras_per_page).min(self.cameras.len());
+            let page_cameras = &self.cameras[start..end];
+
             let available = ui.available_width();
             let tile_w = (available - spacing * (cols as f32 - 1.0)) / cols as f32;
             let tile_h = tile_w * 9.0 / 16.0;
@@ -142,12 +165,12 @@ impl eframe::App for NvrApp {
             egui::Grid::new("camera_grid")
                 .spacing([spacing, spacing])
                 .show(ui, |ui| {
-                    for (i, cam) in self.cameras.iter().enumerate() {
+                    for (i, cam) in page_cameras.iter().enumerate() {
                         if i > 0 && i % cols == 0 {
                             ui.end_row();
                         }
                         if tile::render_tile(ui, cam, tile_size) {
-                            self.focused = Some(i);
+                            self.focused = Some(start + i);
                         }
                     }
                 });
