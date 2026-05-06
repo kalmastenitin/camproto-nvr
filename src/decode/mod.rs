@@ -1,8 +1,7 @@
 #[cfg(target_os = "macos")]
 pub mod macos;
-use camproto_ingest::frame::{Codec, MediaFrame};
-use macos::VideoToolboxDecoder;
 
+use camproto_ingest::frame::{Codec, MediaFrame};
 use std::sync::{Arc, Mutex};
 
 // ── Decoded frame — raw YUV420 planes from VideoToolbox ───────────────────────
@@ -41,13 +40,51 @@ impl std::fmt::Display for DecodeError {
     }
 }
 
+// Platform wise decoder stub -- replaced per platform -----------------------------
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+struct PlatformDecoder;
+
+
+#[cfg(target_os = "macos")]
+type PlatformDecoder = macos::VideoToolboxDecoder;
+
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+impl PlatformDecoder {
+    fn send_packet(&mut self, _data: &[u8], _pts: u64) -> Result<(), DecodeError> {
+        Ok(())
+    }
+}
+
+// Windows — stub until MediaFoundation decoder is implemented
+#[cfg(target_os = "windows")]
+struct PlatformDecoder;
+
+#[cfg(target_os = "windows")]
+impl PlatformDecoder {
+    fn send_packet(&mut self, _data: &[u8], _pts: u64) -> Result<(), DecodeError> {
+        Ok(())
+    }
+}
+// Linux / other — stub
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+struct PlatformDecoder;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+impl PlatformDecoder {
+    fn send_packet(&mut self, _data: &[u8], _pts: u64) -> Result<(), DecodeError> {
+        Ok(())
+    }
+}
+
+
 pub fn spawn_decode_task(
     camera_id: String,
     mut rx: tokio::sync::broadcast::Receiver<MediaFrame>,
     latest: LatestFrame,
 ) {
     tokio::spawn(async move {
-        let mut decoder: Option<VideoToolboxDecoder> = None;
+        let mut decoder: Option<PlatformDecoder> = None;
 
         loop {
             match rx.recv().await {
@@ -60,8 +97,9 @@ pub fn spawn_decode_task(
                     match &frame.codec {
                         Codec::H265 { vps, sps, pps } => {
                             // create decoder on first keyframe
+                             #[cfg(target_os = "macos")]
                             if decoder.is_none() && frame.is_keyframe {
-                                match VideoToolboxDecoder::new(
+                                match macos::VideoToolboxDecoder::new(
                                     vps.as_ref(),
                                     sps.as_ref(),
                                     pps.as_ref(),
@@ -87,8 +125,9 @@ pub fn spawn_decode_task(
                         }
 
                         Codec::H264 { sps, pps } => {
+                             #[cfg(target_os = "macos")]
                             if decoder.is_none() && frame.is_keyframe {
-                                match VideoToolboxDecoder::new_h264(
+                                match macos::VideoToolboxDecoder::new_h264(
                                     sps.as_ref(),
                                     pps.as_ref(),
                                     latest.clone(),
