@@ -47,6 +47,12 @@ pub struct CameraState {
     pub texture: Option<egui::TextureHandle>,
 }
 
+pub struct RgbFrame {
+    pub data:   Vec<u8>,
+    pub width:  usize,
+    pub height: usize,
+}
+
 pub enum ConnectionStatus {
     Connecting,
     Streaming,
@@ -139,17 +145,16 @@ impl NvrApp {
         app
     }
 
-    pub fn new_with_camera(
+    pub fn new_with_cameras(
         _cc: &eframe::CreationContext<'_>,
-        camera_id: &str,
-        latest: LatestFrame,
+        cameras: Vec<(&str, &str, LatestFrame)>,
     ) -> Self {
         let mut app = Self::default();
-
-        let mut cam = CameraState::new(camera_id, "Front Gate");
-        cam.connection = ConnectionStatus::Connecting;
-        cam.latest = Some(latest);
-        app.cameras.push(cam);
+        for (id, name, latest) in cameras {
+            let mut cam = CameraState::new(id, name);
+            cam.latest = Some(latest);
+            app.cameras.push(cam);
+        }
         app
     }
 }
@@ -212,9 +217,8 @@ impl eframe::App for NvrApp {
                     }
                 });
         });
-        ui.ctx().request_repaint_after(
-            std::time::Duration::from_millis(33)
-        );
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(33));
     }
 }
 
