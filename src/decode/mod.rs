@@ -1,5 +1,7 @@
 #[cfg(target_os = "macos")]
 pub mod macos;
+use camproto_ingest::frame::{Codec, MediaFrame};
+use macos::VideoToolboxDecoder;
 
 use std::sync::{Arc, Mutex};
 
@@ -37,4 +39,71 @@ impl std::fmt::Display for DecodeError {
             DecodeError::SendFailed(s) => write!(f, "send failed: {}", s),
         }
     }
+}
+
+pub fn spawn_decode_task(
+    camera_id: String,
+    mut rx: tokio::sync::broadcast::Receiver<MediaFrame>,
+    latest: LatestFrame,
+) {
+    tokio::spawn(async move {
+        let mut decoder: Option<VideoToolboxDecoder> = None;
+
+        loop {
+            match rx.recv().await {
+                Ok(frame) => {
+                    // only handle video frames for this camera
+                    if frame.camera_id != camera_id {
+                        continue;
+                    }
+
+                    match &frame.codec {
+                        Codec::H265 { vps, sps, pps } => {
+                            // create decoder on first keyframe
+                            if decoder.is_none() && frame.is_keyframe {
+                                match VideoToolboxDecoder::new(
+                                    vps.as_ref(),
+                                    sps.as_ref(),
+                                    pps.as_ref(),
+                                    latest.clone(),
+                                ) {
+                                    Ok(dec) => {
+                                        decoder = Some(dec);
+                                        println!("[{}] decoder ready", camera_id);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("[{}] decoder init failed: {}", camera_id, e);
+                                    }
+                                }
+                            }
+
+                            // feed frame to decoder
+                            if let Some(dec) = decoder.as_mut() {
+                                if let Err(e) = dec.send_packet(frame.data.as_ref(), frame.pts) {
+                                    eprintln!("[{}] decode error: {}", camera_id, e);
+                                    decoder = None; // reset — wait for next keyframe
+                                }
+                            }
+                        }
+
+                        Codec::H264 { .. } => {
+                            // TODO: H264 decoder
+                        }
+
+                        _ => {} // audio frames — ignore for now
+                    }
+                }
+
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    eprintln!("[{}] dropped {} frames — resetting decoder", camera_id, n);
+                    decoder = None; // force re-init on next keyframe
+                }
+
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    println!("[{}] channel closed", camera_id);
+                    break;
+                }
+            }
+        }
+    });
 }
