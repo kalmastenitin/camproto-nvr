@@ -1,3 +1,5 @@
+use crate::ui::tile;
+
 pub struct NvrApp {
     pub cameras: Vec<CameraState>,
     pub focused: Option<usize>,
@@ -95,7 +97,25 @@ impl NvrApp {
 impl eframe::App for NvrApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.heading("CamProto NVR");
+            let cols = 4usize;
+            let spacing = 4.0;
+            let available = ui.available_width();
+            let tile_w = (available - spacing * (cols as f32 - 1.0)) / cols as f32;
+            let tile_h = tile_w * 9.0 / 16.0;
+            let tile_size = egui::vec2(tile_w, tile_h);
+
+            egui::Grid::new("camera_grid")
+                .spacing([spacing, spacing])
+                .show(ui, |ui| {
+                    for (i, cam) in self.cameras.iter().enumerate() {
+                        if i > 0 && i % cols == 0 {
+                            ui.end_row();
+                        }
+                        if tile::render_tile(ui, cam, tile_size) {
+                            self.focused = Some(i);
+                        }
+                    }
+                });
         });
     }
 }
