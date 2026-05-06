@@ -50,6 +50,51 @@ const CAMERAS: &[CameraConfig] = &[
         name: "Roof Cam5",
         url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=20&subtype=0",
     },
+    CameraConfig {
+        id: "cam_009",
+        name: "Side Door2",
+        url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=5&subtype=0",
+    },
+    CameraConfig {
+        id: "cam_0010",
+        name: "Side Door3",
+        url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=6&subtype=0",
+    },
+    CameraConfig {
+        id: "cam_0011",
+        name: "Side Door",
+        url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=8&subtype=0",
+    },
+    CameraConfig {
+        id: "cam_0012",
+        name: "Side Door",
+        url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=13&subtype=0",
+    },
+    CameraConfig {
+        id: "cam_0013",
+        name: "Side Door",
+        url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=22&subtype=0",
+    },
+    CameraConfig {
+        id: "cam_0014",
+        name: "Side Door",
+        url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=24&subtype=0",
+    },
+    CameraConfig {
+        id: "cam_0015",
+        name: "Side Door",
+        url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=25&subtype=0",
+    },
+    CameraConfig {
+        id: "cam_0016",
+        name: "Side Door",
+        url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=26&subtype=0",
+    },
+    CameraConfig {
+        id: "cam_0017",
+        name: "Side Door",
+        url: "rtsp://admin:admin@192.168.1.240:554/rtsp/streaming?channel=27&subtype=0",
+    },
 ];
 
 fn main() {

@@ -251,14 +251,14 @@ fn poll_frame(ctx: &egui::Context, cam: &mut CameraState) {
     }
 }
 
-fn render_fullscreen(ui: &mut egui::Ui, cam: &mut CameraState) -> bool{
+fn render_fullscreen(ui: &mut egui::Ui, cam: &mut CameraState) -> bool {
     // returns true if should exit fullscreen
     poll_frame(&ui.ctx().clone(), cam);
-    
+
     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         return true;
     }
-    
+
     let available = ui.available_size();
     // maintain 16:9
     let (w, h) = if available.x / available.y > 16.0 / 9.0 {

@@ -88,6 +88,15 @@ extern "C" {
         format_desc_out: *mut CMFormatDescRef,
     ) -> OSStatus;
 
+    fn CMVideoFormatDescriptionCreateFromH264ParameterSets(
+        allocator: *const c_void,
+        parameter_set_count: usize,
+        parameter_set_ptrs: *const *const u8,
+        parameter_set_sizes: *const usize,
+        nal_unit_header_length: i32,
+        format_desc_out: *mut CMFormatDescRef,
+    ) -> OSStatus;
+
     fn VTDecompressionSessionCreate(
         allocator: *const c_void,
         video_format_desc: CMFormatDescRef,
@@ -219,6 +228,60 @@ impl VideoToolboxDecoder {
                 CFRelease(format_desc as *const c_void);
                 return Err(DecodeError::InitFailed(format!(
                     "VTDecompressionSessionCreate: {}",
+                    status
+                )));
+            }
+
+            Ok(Self {
+                session,
+                format_desc,
+                latest,
+            })
+        }
+    }
+
+    pub fn new_h264(sps: &[u8], pps: &[u8], latest: LatestFrame) -> Result<Self, DecodeError> {
+        unsafe {
+            let param_ptrs = [sps.as_ptr(), pps.as_ptr()];
+            let param_sizes = [sps.len(), pps.len()];
+
+            let mut format_desc: CMFormatDescRef = std::ptr::null_mut();
+            let status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
+                std::ptr::null(),
+                2, // SPS + PPS only — no VPS
+                param_ptrs.as_ptr(),
+                param_sizes.as_ptr(),
+                4, // 4-byte length prefix
+                &mut format_desc,
+            );
+            if status != 0 {
+                return Err(DecodeError::InitFailed(format!(
+                    "CMVideoFormatDescriptionCreateFromH264ParameterSets: {}",
+                    status
+                )));
+            }
+
+            let boxed = Box::new(latest.clone());
+            let refcon = Box::into_raw(boxed) as *mut c_void;
+
+            let callback_record = VTDecompressionOutputCallbackRecord {
+                callback: Some(decompress_callback),
+                refcon,
+            };
+
+            let mut session: VTSessionRef = std::ptr::null_mut();
+            let status = VTDecompressionSessionCreate(
+                std::ptr::null(),
+                format_desc,
+                std::ptr::null(),
+                std::ptr::null(),
+                &callback_record,
+                &mut session,
+            );
+            if status != 0 {
+                CFRelease(format_desc as *const c_void);
+                return Err(DecodeError::InitFailed(format!(
+                    "VTDecompressionSessionCreate (H264): {}",
                     status
                 )));
             }

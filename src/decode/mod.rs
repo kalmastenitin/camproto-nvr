@@ -86,8 +86,31 @@ pub fn spawn_decode_task(
                             }
                         }
 
-                        Codec::H264 { .. } => {
-                            // TODO: H264 decoder
+                        Codec::H264 { sps, pps } => {
+                            if decoder.is_none() && frame.is_keyframe {
+                                match VideoToolboxDecoder::new_h264(
+                                    sps.as_ref(),
+                                    pps.as_ref(),
+                                    latest.clone(),
+                                ) {
+                                    Ok(dec) => {
+                                        decoder = Some(dec);
+                                        println!("[{}] H264 decoder ready", camera_id);
+                                    }
+                                    Err(e) => {
+                                        eprintln!(
+                                            "[{}] H264 decoder init failed: {}",
+                                            camera_id, e
+                                        );
+                                    }
+                                }
+                            }
+                            if let Some(dec) = decoder.as_mut() {
+                                if let Err(e) = dec.send_packet(frame.data.as_ref(), frame.pts) {
+                                    eprintln!("[{}] H264 decode error: {}", camera_id, e);
+                                    decoder = None;
+                                }
+                            }
                         }
 
                         _ => {} // audio frames — ignore for now
