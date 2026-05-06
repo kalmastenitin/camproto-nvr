@@ -153,6 +153,16 @@ pub struct VideoToolboxDecoder {
 
 unsafe impl Send for VideoToolboxDecoder {}
 
+impl Drop for VideoToolboxDecoder {
+    fn drop(&mut self) {
+        unsafe {
+            VTDecompressionSessionInvalidate(self.session);
+            VTDecompressionSessionRelease(self.session);
+            CMVideoFormatDescriptionRelease(self.format_desc);
+        }
+    }
+}
+
 impl VideoToolboxDecoder {
     pub fn new(
         vps: &[u8],
@@ -219,6 +229,86 @@ impl VideoToolboxDecoder {
                 format_desc,
                 latest,
             })
+        }
+    }
+
+    pub fn send_packet(
+        &mut self,
+        data: &[u8],
+        pts: u64, // microseconds
+    ) -> Result<(), DecodeError> {
+        unsafe {
+            // ── Step 1: create CMBlockBuffer wrapping your NAL data ───────────
+            // CMBlockBuffer does NOT copy the data — it holds a pointer
+            // data must stay alive until after VTDecompressionSessionDecodeFrame returns
+            // since we call synchronously this is fine — data is on the stack
+
+            let mut block_buf: CMBlockBufferRef = std::ptr::null_mut();
+            let status = CMBlockBufferCreateWithMemoryBlock(
+                std::ptr::null(),             // allocator
+                data.as_ptr() as *mut c_void, // memory block (your NAL bytes)
+                data.len(),                   // total block length
+                std::ptr::null(),             // block allocator (NULL = don't free)
+                std::ptr::null(),             // custom block source
+                0,                            // offset to data
+                data.len(),                   // data length
+                0,                            // flags
+                &mut block_buf,
+            );
+            if status != 0 {
+                return Err(DecodeError::SendFailed(format!(
+                    "CMBlockBufferCreateWithMemoryBlock: {}",
+                    status
+                )));
+            }
+
+            // ── Step 2: create CMSampleBuffer with timing info ────────────────
+            let timing = CMSampleTimingInfo {
+                duration: CMTime::zero(),
+                presentation_timestamp: CMTime::from_pts_us(pts),
+                decode_timestamp: CMTime::from_pts_us(pts),
+            };
+            let sample_size = data.len();
+            let mut sample_buf: CMSampleBufferRef = std::ptr::null_mut();
+
+            let status = CMSampleBufferCreateReady(
+                std::ptr::null(), // allocator
+                block_buf,        // data buffer
+                self.format_desc, // format description
+                1,                // num samples
+                1,                // num sample timing entries
+                &timing,          // timing array
+                1,                // num sample size entries
+                &sample_size,     // size array
+                &mut sample_buf,
+            );
+            CFRelease(block_buf as *const c_void); // release block_buf — sample_buf holds it now
+
+            if status != 0 {
+                return Err(DecodeError::SendFailed(format!(
+                    "CMSampleBufferCreateReady: {}",
+                    status
+                )));
+            }
+
+            // ── Step 3: decode ────────────────────────────────────────────────
+            let status = VTDecompressionSessionDecodeFrame(
+                self.session,
+                sample_buf,
+                0,                    // decode flags (0 = default)
+                std::ptr::null_mut(), // source refcon (per-frame, we use the session refcon)
+                std::ptr::null_mut(), // info flags out
+            );
+            CFRelease(sample_buf as *const c_void);
+
+            if status != 0 {
+                return Err(DecodeError::SendFailed(format!(
+                    "VTDecompressionSessionDecodeFrame: {}",
+                    status
+                )));
+            }
+
+            Ok(())
         }
     }
 }
