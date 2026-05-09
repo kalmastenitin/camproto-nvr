@@ -98,6 +98,13 @@ const CAMERAS: &[CameraConfig] = &[
 ];
 
 fn main() {
+    // initialize MF once for the process before any decode threads
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::Media::MediaFoundation::{MFStartup, MFSTARTUP_NOSOCKET, MF_VERSION};
+        MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).unwrap();
+    }
+
     // ONE runtime for all cameras — lives until program exits
     let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -135,4 +142,10 @@ fn main() {
 
     // rt dropped here — after eframe exits
     drop(rt);
+
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::Media::MediaFoundation::MFShutdown;
+        MFShutdown().ok();
+    }
 }

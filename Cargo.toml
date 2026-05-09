@@ -18,3 +18,14 @@ camproto-ingest = { path = "../camproto-ingest" }
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation     = "0.10.1"
 core-foundation-sys = "0.8"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+] }
