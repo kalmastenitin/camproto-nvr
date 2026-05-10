@@ -98,12 +98,10 @@ const CAMERAS: &[CameraConfig] = &[
 ];
 
 fn main() {
-    // initialize MF once at process level — all decoders share this reference
+    // FFmpeg global init — safe to call multiple times, idempotent
     #[cfg(target_os = "windows")]
     unsafe {
-        use windows::Win32::Media::MediaFoundation::{MFStartup, MFSTARTUP_NOSOCKET, MF_VERSION};
-        MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).ok();
-        // initialize shared D3D11 device before RTSP starts (NVDEC/D3D11VA)
+        ffmpeg_sys_next::avformat_network_init();
     }
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -142,7 +140,6 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     unsafe {
-        use windows::Win32::Media::MediaFoundation::MFShutdown;
-        MFShutdown().ok();
+        ffmpeg_sys_next::avformat_network_deinit();
     }
 }

@@ -2,7 +2,7 @@
 pub mod macos;
 
 #[cfg(target_os = "windows")]
-pub mod windows_mf;
+pub mod windows_ffmpeg;
 
 use camproto_ingest::frame::{Codec, MediaFrame};
 use std::sync::mpsc;
@@ -47,11 +47,10 @@ impl std::fmt::Display for DecodeError {
 #[cfg(target_os = "macos")]
 type PlatformDecoder = macos::VideoToolboxDecoder;
 
-// Windows: MF software decode only.
-// H264 → MFT with HARDWARE flag (NVDEC system-memory output, no D3D11 needed)
-// H265 → MFT software only (HEVC Video Extension)
+// Windows: FFmpeg with D3D11VA hardware acceleration.
+// H264 + H265: tries NVDEC/D3D11VA first, falls back to software automatically.
 #[cfg(target_os = "windows")]
-type PlatformDecoder = windows_mf::MediaFoundationDecoder;
+type PlatformDecoder = windows_ffmpeg::FfmpegDecoder;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 struct PlatformDecoder;
@@ -95,12 +94,6 @@ pub fn spawn_decode_task(
     std::thread::Builder::new()
         .name(format!("decode-{}", camera_id))
         .spawn(move || {
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            }
-
             let mut decoder: Option<PlatformDecoder> = None;
 
             loop {
@@ -129,19 +122,25 @@ pub fn spawn_decode_task(
 
                         #[cfg(target_os = "windows")]
                         if decoder.is_none() && frame.is_keyframe {
-                            match windows_mf::MediaFoundationDecoder::new_h265(
+                            match windows_ffmpeg::FfmpegDecoder::new_h265(
                                 vps.as_ref(),
                                 sps.as_ref(),
                                 pps.as_ref(),
                                 latest.clone(),
                             ) {
                                 Ok(dec) => {
-                                    println!("[{}] H265 ready (software)", camera_id_thread);
+                                    println!(
+                                        "[{}] H265 ready ({})",
+                                        camera_id_thread,
+                                        if dec.is_hardware() {
+                                            "D3D11VA/NVDEC"
+                                        } else {
+                                            "software"
+                                        }
+                                    );
                                     decoder = Some(dec);
                                 }
-                                Err(e) => {
-                                    eprintln!("[{}] H265 init failed: {}", camera_id_thread, e)
-                                }
+                                Err(e) => eprintln!("[{}] H265 init: {}", camera_id_thread, e),
                             }
                         }
 
@@ -171,25 +170,24 @@ pub fn spawn_decode_task(
 
                         #[cfg(target_os = "windows")]
                         if decoder.is_none() && frame.is_keyframe {
-                            // new_h264 tries hardware (NVDEC system-memory output) first,
-                            // falls back to software if hardware not available.
-                            match windows_mf::MediaFoundationDecoder::new_h264(
+                            match windows_ffmpeg::FfmpegDecoder::new_h264(
                                 sps.as_ref(),
                                 pps.as_ref(),
                                 latest.clone(),
                             ) {
                                 Ok(dec) => {
-                                    let hw = dec.is_hardware();
                                     println!(
                                         "[{}] H264 ready ({})",
                                         camera_id_thread,
-                                        if hw { "hardware" } else { "software" }
+                                        if dec.is_hardware() {
+                                            "D3D11VA/NVDEC"
+                                        } else {
+                                            "software"
+                                        }
                                     );
                                     decoder = Some(dec);
                                 }
-                                Err(e) => {
-                                    eprintln!("[{}] H264 init failed: {}", camera_id_thread, e)
-                                }
+                                Err(e) => eprintln!("[{}] H264 init: {}", camera_id_thread, e),
                             }
                         }
 
@@ -203,12 +201,6 @@ pub fn spawn_decode_task(
 
                     _ => {}
                 }
-            }
-
-            #[cfg(target_os = "windows")]
-            unsafe {
-                use windows::Win32::System::Com::CoUninitialize;
-                CoUninitialize();
             }
         })
         .expect("failed to spawn decode thread");
