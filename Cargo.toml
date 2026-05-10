@@ -8,13 +8,18 @@ name = "nvr"
 path = "src/bin/nvr.rs"
 
 [dependencies]
-egui        = "0.34.2"
-eframe      = { version = "0.34.2", features = ["wgpu"] }
-wgpu        = "29.0.3"
-tokio       = { version = "1.52.2", features = ["full"] }
-parking_lot = "0.12"
+egui            = "0.34.2"
+eframe          = { version = "0.34.2", features = ["wgpu"] }
+wgpu            = "29.0.3"
+tokio           = { version = "1.52.3", features = ["full"] }
+parking_lot     = "0.12"
 camproto-ingest = { path = "../camproto-ingest" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation     = "0.10.1"
 core-foundation-sys = "0.8"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ffmpeg-sys-next = "8.1.0"
+# windows crate removed — was only used by windows_mf.rs (deleted)
+# FFmpeg handles D3D11VA internally, no windows-rs needed

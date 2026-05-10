@@ -98,9 +98,13 @@ const CAMERAS: &[CameraConfig] = &[
 ];
 
 fn main() {
-    // ONE runtime for all cameras — lives until program exits
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    // FFmpeg global init — safe to call multiple times, idempotent
+    #[cfg(target_os = "windows")]
+    unsafe {
+        ffmpeg_sys_next::avformat_network_init();
+    }
 
+    let rt = tokio::runtime::Runtime::new().unwrap();
     let mut cam_latests = Vec::new();
 
     for cfg in CAMERAS {
@@ -123,7 +127,6 @@ fn main() {
         });
     }
 
-    // rt must stay alive — move it into the closure or keep it in scope
     let _ = eframe::run_native(
         "CamProto NVR",
         eframe::NativeOptions {
@@ -133,6 +136,10 @@ fn main() {
         Box::new(move |cc| Ok(Box::new(NvrApp::new_with_cameras(cc, cam_latests)))),
     );
 
-    // rt dropped here — after eframe exits
     drop(rt);
+
+    #[cfg(target_os = "windows")]
+    unsafe {
+        ffmpeg_sys_next::avformat_network_deinit();
+    }
 }
