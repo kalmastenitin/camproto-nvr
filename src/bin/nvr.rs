@@ -98,16 +98,15 @@ const CAMERAS: &[CameraConfig] = &[
 ];
 
 fn main() {
-    // initialize MF once for the process before any decode threads
+    // initialize MF once at process level — all decoders share this reference
     #[cfg(target_os = "windows")]
     unsafe {
         use windows::Win32::Media::MediaFoundation::{MFStartup, MFSTARTUP_NOSOCKET, MF_VERSION};
-        MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).unwrap();
+        MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).ok();
+        // initialize shared D3D11 device before RTSP starts (NVDEC/D3D11VA)
     }
 
-    // ONE runtime for all cameras — lives until program exits
     let rt = tokio::runtime::Runtime::new().unwrap();
-
     let mut cam_latests = Vec::new();
 
     for cfg in CAMERAS {
@@ -130,7 +129,6 @@ fn main() {
         });
     }
 
-    // rt must stay alive — move it into the closure or keep it in scope
     let _ = eframe::run_native(
         "CamProto NVR",
         eframe::NativeOptions {
@@ -140,7 +138,6 @@ fn main() {
         Box::new(move |cc| Ok(Box::new(NvrApp::new_with_cameras(cc, cam_latests)))),
     );
 
-    // rt dropped here — after eframe exits
     drop(rt);
 
     #[cfg(target_os = "windows")]
